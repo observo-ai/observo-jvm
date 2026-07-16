@@ -1,0 +1,46 @@
+name: Release
+
+# Publishes the plugin to GitHub Packages — the pilot's private distribution
+# channel (OB-548). The public Gradle Plugin Portal is intentionally absent:
+# publishing there is an irreversible public API commitment, held behind the
+# PRD's Adoption gate until the pilot validates the bridge.
+#
+# Cut a release:  git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Derive version from tag
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Tests gate the publish: a broken artifact in a package registry is far
+      # more annoying to retract than one that never shipped.
+      - name: Build and test
+        run: ./gradlew build -PobservoVersion=${{ steps.version.outputs.value }} --stacktrace
+
+      - name: Publish to GitHub Packages
+        run: ./gradlew publishAllPublicationsToGitHubPackagesRepository -PobservoVersion=${{ steps.version.outputs.value }} --stacktrace
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

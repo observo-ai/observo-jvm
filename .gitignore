@@ -1,0 +1,21 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Local env / secrets — never commit
+keystore.properties
+local.properties
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.iml
+
+# OS noise
+.DS_Store
+Thumbs.db
