@@ -75,6 +75,32 @@ class CliResolverIntegrationTest {
     }
 
     @Test
+    fun `the pinned default cliVersion exists and actually serves the jvm subcommands`() {
+        requireNetwork()
+
+        // The plugin runs a *published* binary, so its default is a claim about
+        // another repo's releases. That claim was false for this plugin's whole
+        // first day: DEFAULT_CLI_VERSION pointed at 0.10.0 while the newest
+        // release was 0.9.0, which predated the JVM bridge entirely — every task
+        // would have 404'd on first use. Asserting the default resolves AND
+        // exposes the subcommands the tasks invoke turns that from a discovery
+        // into a build failure.
+        val binary = resolver().resolve(ObservoPlugin.DEFAULT_CLI_VERSION)
+
+        val help = ProcessBuilder(binary.absolutePath, "jvm", "--help")
+            .redirectErrorStream(true)
+            .start()
+            .inputStream.bufferedReader().readText()
+
+        for (sub in listOf("import", "stub", "push")) {
+            assertTrue(
+                help.contains(sub),
+                "CLI $DEFAULT_VERSION does not offer `jvm $sub`, which observo${sub.replaceFirstChar(Char::uppercase)} invokes:\n$help",
+            )
+        }
+    }
+
+    @Test
     fun `accepts a v-prefixed version and caches it under the bare number`() {
         requireNetwork()
 
@@ -119,5 +145,8 @@ class CliResolverIntegrationTest {
     private companion object {
         /** A real, immutable, published observo-cli release. */
         const val KNOWN_RELEASE = "0.9.0"
+
+        /** Echoed in the failure message so it names the version that let us down. */
+        val DEFAULT_VERSION = ObservoPlugin.DEFAULT_CLI_VERSION
     }
 }
