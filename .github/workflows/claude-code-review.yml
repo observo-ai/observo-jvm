@@ -1,0 +1,75 @@
+name: Claude Code Review
+
+# Auto-review on every PR push. Mirrors the observo-cli setup: the prompt is
+# inlined (no fetched plugin with an unpinned SHA) and the model posts one
+# markdown comment via `gh pr comment`. Adapted for this repo's Java/Kotlin
+# JVM-bridge surface.
+#
+# Note: claude-code-action validates the workflow against the default branch,
+# so this only runs on PRs opened AFTER it lands on main. It also needs the
+# CLAUDE_CODE_OAUTH_TOKEN secret (org- or repo-level) — same as observo-cli.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Write so `gh pr comment` from inside the Claude SDK can post the review.
+      pull-requests: write
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # depth=0 so `git diff origin/main...HEAD` resolves against the base.
+          fetch-depth: 0
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Allowlist exactly the tools the prompt needs; a denied `gh pr comment`
+          # is the silent-fail mode (job exits 0 with no review posted).
+          claude_args: '--allowed-tools "Bash(gh *),Bash(git fetch*),Bash(git diff*),Bash(git log*),Read,Grep,Glob"'
+          prompt: |
+            You are reviewing pull request #${{ github.event.pull_request.number }} ("${{ github.event.pull_request.title }}") in the observo-jvm repository — the JVM side of the Kotlin/JVM ↔ Observo bridge (a Gradle plugin plus JUnit5/TestNG runtime listeners and a shared manifest model, all Java/Kotlin).
+
+            Process:
+            1. Run `git diff origin/${{ github.event.pull_request.base.ref }}...HEAD` to scope changes. The checkout is already full-depth, so no fetch is needed first.
+            2. For each changed Java/Kotlin file, read the surrounding context and look for correctness bugs only: inverted/wrong conditions, off-by-one, null deref, swallowed exceptions, concurrency races (listeners run under parallel test execution), broken invariants the diff failed to re-establish, and Gradle wiring bugs (task options colliding with Gradle built-ins, wrong dependency scope). Pay extra attention to, in order:
+               - **Manifest wire-contract drift** — the Java `LinkManifest`/`LinkEntry`/`Result` JSON must stay byte-compatible with the CLI's `internal/jvm/manifest.go` (field names, `code` as explicit null when untracked, `entries` empty-array-not-null, omitempty semantics, PASS/FAIL/SKIP). A mismatch makes `observo jvm push --manifest` misread or drop entries.
+               - **Status-mapping honesty** — can a FAIL/SKIP invocation ever be reported as PASS? Check aggregation of repeated/parametrized/data-driven invocations (any FAIL must dominate; never last-write-wins).
+               - **ServiceLoader wiring** — `META-INF/services` file names must be the exact SPI interface FQCN, contents the impl class.
+               - **Listener safety** — a listener must never throw into the test lifecycle or fail a client's green build, and must not ship third-party runtime deps that clash with the client's Jackson/Allure.
+               - **Publishing** — `compileOnly` deps must be absent from the published POM; a shared module must resolve transitively.
+            3. Ignore style nits, alternative implementations, missing comments, naming preferences. Only real bugs.
+            4. Cap findings at 8. Rank by severity (highest first).
+            5. If there are no real bugs, post a single short comment saying "No correctness issues found in this diff." — do NOT pad with positive feedback.
+            6. ALWAYS post exactly one comment before you finish — including when you could not review. If a tool call is denied, the diff comes back empty, or anything else stops you, post "## Automated review" with a one-line explanation of what blocked you instead of ending the turn. Never finish silently: this job exits 0 either way, so a missing comment renders a PASSING check that nobody reviewed, which is worse than an outright failure.
+
+            Post the review as ONE markdown comment via:
+              gh pr comment ${{ github.event.pull_request.number }} --body "<markdown>"
+
+            Use this exact comment shape:
+              ## Automated review
+
+              ### N. (SEVERITY) one-sentence summary
+              `file:line` — concrete failure scenario (inputs/state → wrong behavior).
+              Suggested fix (1-2 sentences).
+
+              ---
+              <repeat per finding>
+
+            Severity tags: CRITICAL / HIGH / MEDIUM / LOW / NIT. Use them honestly — most PRs have at most one MEDIUM, the rest LOW/NIT.
