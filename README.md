@@ -7,12 +7,20 @@ rewriting a single test.
 | Artifact | Coordinates | Status |
 |---|---|---|
 | Gradle plugin | `ai.observo` | ✅ this repo |
-| Runtime listener | `observo-junit5` / `observo-testng` | planned (OB-547) |
+| Runtime listeners | `ai.observo:observo-junit5` / `ai.observo:observo-testng` | ✅ this repo |
+| Manifest model | `ai.observo:observo-manifest` | ✅ this repo (shared) |
 
 The Gradle plugin is a **build-time front-end for [observo-cli]** — it resolves
 the platform CLI binary and orchestrates it. All bridge logic lives in the CLI,
 so JVM, Playwright and Maven users share one implementation instead of three
 that drift.
+
+The **runtime listeners** are the one exception, and they are optional: a thin
+JUnit 5 / TestNG listener that emits the link manifest *from a live run*, so it
+can carry result, timing and (later) source references that a static
+Allure/testng report can't. You do not need them for the pilot — the plugin
+already derives the manifest from your reports — but they are the richer path.
+See [Runtime listeners](#runtime-listeners-optional).
 
 ## The join key
 
@@ -221,6 +229,46 @@ so an unverified download would hand code execution to anyone able to answer the
 HTTP request.
 
 Air-gapped or offline? Set `cliPath` and no download happens.
+
+## Runtime listeners (optional)
+
+`observo-junit5` and `observo-testng` are thin listeners that write
+`observo-link-manifest.json` **from a live run**. They exist because a static
+report can't always carry everything the coverage verdict wants: the listener
+sees the real pass/fail/skip and timing directly, keyed to the same
+`observo:<code>` you already tag with. Nothing about your tests changes — you
+add a jar, not an annotation or a runtime dependency of your own (both listeners
+are pure JDK + hand-rolled JSON, so they can't clash with your Jackson/Allure).
+
+They are **not required**: `observoPush` already builds the manifest from your
+Allure / `testng-results.xml`. Reach for a listener when you want the richer,
+run-sourced manifest.
+
+```kotlin
+// build.gradle.kts — put the matching listener on the TEST classpath only
+dependencies {
+    testRuntimeOnly("ai.observo:observo-junit5:0.1.0")   // JUnit 5
+    // or
+    testRuntimeOnly("ai.observo:observo-testng:0.1.0")   // TestNG
+}
+```
+
+Registration is automatic — JUnit's launcher and TestNG both discover the
+listener through `META-INF/services`. On the last test it writes the manifest to
+`-Dobservo.manifest.out` (or `$OBSERVO_MANIFEST_OUT`), defaulting to
+`observo-link-manifest.json` in the working directory. Feed it to a push:
+
+```bash
+observo jvm push --manifest observo-link-manifest.json --run RUN-42
+```
+
+The listener never fails a test and never touches your other reporters — if it
+can't write the file it prints one warning and the suite stays green.
+
+> The listeners are distributed through the same GitHub Packages repo as the
+> plugin, so one `read:packages` token resolves them and their shared
+> `observo-manifest` dependency together. The public Maven Central publish is
+> held behind the PRD's Adoption gate, exactly like the plugin's Portal publish.
 
 ## Development
 
