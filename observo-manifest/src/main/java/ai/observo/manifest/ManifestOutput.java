@@ -47,8 +47,14 @@ public final class ManifestOutput {
      * returns null; on success it returns the path written.
      */
     public static Path write(LinkManifest manifest) {
-        Path out = resolvePath();
+        // resolvePath() is inside the try too: a malformed -Dobservo.manifest.out
+        // / $OBSERVO_MANIFEST_OUT (an embedded NUL, or a stray :/*/? on Windows)
+        // makes Paths.get throw InvalidPathException, and that must be swallowed
+        // like any other write failure — it must never escape into the test
+        // lifecycle and fail a green suite.
+        Path out = null;
         try {
+            out = resolvePath();
             Path parent = out.getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
@@ -58,7 +64,8 @@ public final class ManifestOutput {
             }
             return out;
         } catch (IOException | RuntimeException e) {
-            System.err.println("[observo] could not write " + out + ": " + e.getMessage());
+            System.err.println("[observo] could not write link manifest"
+                    + (out != null ? " " + out : "") + ": " + e.getMessage());
             return null;
         }
     }
