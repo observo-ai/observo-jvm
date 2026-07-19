@@ -95,7 +95,7 @@ pluginManagement {
 ```kotlin
 // build.gradle.kts
 plugins {
-    id("ai.observo") version "0.1.0"
+    id("ai.observo") version "0.2.0"
 }
 
 observo {
@@ -247,9 +247,9 @@ run-sourced manifest.
 ```kotlin
 // build.gradle.kts — put the matching listener on the TEST classpath only
 dependencies {
-    testRuntimeOnly("ai.observo:observo-junit5:0.1.0")   // JUnit 5
+    testRuntimeOnly("ai.observo:observo-junit5:0.2.0")   // JUnit 5
     // or
-    testRuntimeOnly("ai.observo:observo-testng:0.1.0")   // TestNG
+    testRuntimeOnly("ai.observo:observo-testng:0.2.0")   // TestNG
 }
 ```
 
